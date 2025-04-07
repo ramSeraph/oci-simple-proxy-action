@@ -1,0 +1,16 @@
+name: 'GCP-Simple-Proxy-Cleanup'
+description: 'Sub action to cleanup gcp instance'
+author: 'RamSeraph'
+
+inputs:
+  oci-name-suffix:
+    description: 'suffix used for the the various names'
+    required: true
+  oci-compartment-name:
+    description: 'Name of the OCI compartment'
+    required: true
+
+runs:
+  using: node20
+  main: index.js
+  post: dist/index.js

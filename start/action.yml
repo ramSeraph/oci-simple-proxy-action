@@ -1,0 +1,159 @@
+name: 'OCI-Run-Simple-Proxy'
+description: 'Run a simple-proxy instance on Oracle Cloud Infrastructure'
+author: 'RamSeraph'
+
+inputs:
+  oci-compartment-name:
+    description: 'OCI compartment name'
+    required: true
+  oci-availability-domain:
+    description: 'OCI availability domain name'
+    required: true
+  oci-os-name:
+    description: 'name of OS image to use'
+    default: 'Canonical Ubuntu'
+  oci-os-version:
+    description: 'version of OS image to use'
+    default: '24.04'
+  oci-shape:
+    description: 'name of the shape to use'
+    default: 'VM.Standard.A1.Flex'
+  oci-shape-ocpus:
+    description: 'number of ocpus for the shape'
+    default: ''
+  oci-shape-memory:
+    description: 'amount of RAM in GBs to use for the shape'
+    default: ''
+  simpleproxy-port:
+    description: 'port to use for simple proxy'
+    required: false
+    default: 8080
+  simpleproxy-version:
+    description: 'simple proxy version to use'
+    required: false
+    default: '1.2.0'
+  simpleproxy-basicauth:
+    description: 'simple proxy basic auth as username:password'
+    required: false
+    default: ''
+  proxy-check-retry-delay:
+    description: 'retry delay while checking proxy status'
+    required: false
+    default: 5
+  proxy-check-max-retries:
+    description: 'number of retries allowed while checking proxy status'
+    required: false
+    default: 50
+
+outputs:
+  ip_address:
+    description: 'ip address of the socks proxy'
+    value: ${{ steps.start-proxy.outputs.ip_address }}
+  name_suffix:
+    description: 'suffix name used'
+    value: ${{ steps.start-proxy.outputs.name_suffix }}
+
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install the latest version of uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+        cache-dependency-glob: ""
+
+    - name: Setup OCI Config
+      shell: bash
+      run: |
+        mkdir -p .oci
+
+        echo "$OCI_CLI_KEY_CONTENT" | base64 --decode > .oci/key.pem
+
+        echo """[DEFAULT]
+        user=$OCI_CLI_USER
+        fingerprint=$OCI_CLI_FINGERPRINT
+        tenancy=$OCI_CLI_TENANCY
+        region=$OCI_CLI_REGION
+        key_file=$(pwd)/.oci/key.pem
+        """ > .oci/config
+
+        if [[ $OCI_SSH_KEY_CONTENT != '' ]]; then
+          echo "$OCI_SSH_KEY_CONTENT" | base64 --decode > .oci/ssh_key
+        fi
+
+    - name: Start Proxy
+      id: start-proxy
+      shell: bash
+      run: |
+        suffix="$(date +%s)"
+
+        echo "name_suffix=$suffix" >> $GITHUB_OUTPUT 
+        
+        proxy_version="${{ inputs.simpleproxy-version }}"
+        proxy_port="${{ inputs.simpleproxy-port }}"
+
+        basic_auth_str=''
+        if [[ "${{ inputs.simpleproxy-basicauth }}" != "" ]]; then
+          basic_auth_str='-basic-auth "${{ inputs.simpleproxy-basicauth }}"'
+        fi
+
+        sed -e "s/<VERSION>/$proxy_version/g" -e "s/<PORT>/$proxy_port/g" -e "s/<BASIC_AUTH>/$basic_auth_str/g" ${GITHUB_ACTION_PATH}/startup.sh.tmpl > startup.sh 
+
+        ssh_key_arg=''
+        if [[ -e .oci/ssh_key ]]; then
+          ssh_key_arg='--ssh-public-key=.oci/ssh_key'
+        fi
+
+        shape_args=''
+        if [[ ${{ inputs.oci-shape-ocpus }} != '' ]]; then
+            shape_args='--shape-ocpus=${{ inputs.oci-shape-ocpus }}'
+        fi
+        if [[ ${{ inputs.oci-shape-memory }} != '' ]]; then
+            shape_args=${shape_args}" --shape-memory-in-gbs=${{ inputs.oci-shape-memory }}"
+        fi
+
+        uv run --with oci ${GITHUB_ACTION_PATH}/start.py \
+            --config-file=.oci/config \
+            --compartment-name=${{ inputs.oci-compartment-name }} \
+            --availability-domain=${{ inputs.oci-availability-domain }} \
+            --name-suffix=${suffix} \
+            --open-port=${proxy_port} \
+            --os-name="${{ inputs.oci-os-name }}" \
+            --os-version="${{ inputs.oci-os-version }}" \
+            --shape="${{ inputs.oci-shape }}" \
+            $shape_args \
+            --cloud-init=./startup.sh \
+            $ssh_key_arg \
+            --save-ip-address-to=ip_address.txt
+
+        echo "ip_address=$(cat ip_address.txt)" >> $GITHUB_OUTPUT 
+        
+
+    - name: Wait For Proxy
+      shell: bash
+      run: |
+        ip_address="${{ steps.start-proxy.outputs.ip_address }}"
+        port="${{ inputs.simpleproxy-port }}"
+        retry_delay=${{ inputs.proxy-check-retry-delay }}
+        max_retries=${{ inputs.proxy-check-max-retries }}
+
+        counter=0
+        while true; do
+          if (( $counter == $max_retries )) ; then
+            echo "Reached the retry upper limit of $counter attempts"
+            exit 1
+          fi
+          if nc -z $ip_address $port; then
+            echo "The machine is UP !!!"
+            exit 0
+          else
+            echo "sleeping for $retry_delay to check again if machine started.. attempts: $counter"
+            counter=$((counter + 1))
+            sleep $retry_delay
+          fi
+        done
+
+        exit 1
+
+

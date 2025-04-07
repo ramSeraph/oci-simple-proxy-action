@@ -1,0 +1,43 @@
+#!/bin/bash
+
+arch=$(uname -m)
+if [[ $arch == 'aarch64' ]]; then
+  arch="arm64"
+fi
+if [[ $arch == 'x86_64' ]]; then
+  arch="amd64"
+fi
+
+mkdir /scratch
+cd /scratch
+
+wget https://github.com/jthomperoo/simple-proxy/releases/download/v<VERSION>/simple-proxy_linux_${arch}.zip
+python3 -c "import zipfile; z = zipfile.ZipFile('simple-proxy_linux_${arch}.zip'); z.extractall('.');"
+chmod a+x simple-proxy
+mv simple-proxy /usr/bin/
+
+cd -
+rm -rf /scratch
+
+iptables -I INPUT 5 -m state --state NEW -p tcp --dport <PORT> -j ACCEPT
+
+cat > /etc/systemd/system/proxy.service << EOF
+[Unit]
+Description=Simple Proxy Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/tmp
+ExecStart=/usr/bin/simple-proxy <BASIC_AUTH> -port <PORT> -logtostderr -v 2
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable proxy.service
+systemctl start proxy.service

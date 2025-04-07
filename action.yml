@@ -1,0 +1,84 @@
+name: 'OCI-Run-Simple-Proxy'
+description: 'Run a simple-proxy instance on Oracle Cloud Infrastructure'
+author: 'RamSeraph'
+
+inputs:
+  oci-compartment-name:
+    description: 'OCI compartment name'
+    required: true
+  oci-availability-domain:
+    description: 'OCI availability domain name'
+    required: true
+  oci-os-name:
+    description: 'name of OS image to use'
+    default: 'Canonical Ubuntu'
+  oci-os-version:
+    description: 'version of OS image to use'
+    default: '24.04'
+  oci-shape:
+    description: 'name of the shape to use'
+    default: 'VM.Standard.A1.Flex'
+  oci-shape-ocpus:
+    description: 'number of ocpus for the shape'
+    default: ''
+  oci-shape-memory:
+    description: 'amount of RAM in GBs to use for the shape'
+    default: ''
+  simpleproxy-port:
+    description: 'port to use for simple proxy'
+    required: false
+    default: 8080
+  simpleproxy-version:
+    description: 'simple proxy version to use'
+    required: false
+    default: '1.2.0'
+  simpleproxy-basicauth:
+    description: 'simple proxy basic auth as username:password'
+    required: false
+    default: ''
+  proxy-check-retry-delay:
+    description: 'retry delay while checking proxy status'
+    required: false
+    default: 5
+  proxy-check-max-retries:
+    description: 'number of retries allowed while checking proxy status'
+    required: false
+    default: 50
+
+outputs:
+  ip_address:
+    description: 'ip address of the socks proxy'
+    value: ${{ steps.start-proxy.outputs.ip_address }}
+  name_suffix:
+    description: 'suffix name used'
+    value: ${{ steps.start-proxy.outputs.name_suffix }}
+
+
+runs:
+  using: "composite"
+  steps:
+    - name: Start Proxy
+      id: start-proxy
+      uses: ramSeraph/oci-simple-proxy-action/start@v0.0.1
+      with:
+        oci-compartment-name: ${{ inputs.oci-compartment-name }}
+        oci-availability-domain: ${{ inputs.oci-availability-domain }}
+        oci-os-name: ${{ inputs.oci-os-name }}
+        oci-os-version: ${{ inputs.oci-os-version }}
+        oci-shape: ${{ inputs.oci-shape }}
+        oci-shape-ocpus: ${{ inputs.oci-shape-ocpus }}
+        oci-shape-memory: ${{ inputs.oci-shape-memory }}
+        simpleproxy-port: ${{ inputs.simpleproxy-port }}
+        simpleproxy-version: ${{ inputs.simpleproxy-version }}
+        simpleproxy-basicauth: ${{ inputs.simpleproxy-basicauth }}
+        proxy-check-retry-delay: ${{ inputs.proxy-check-retry-delay }}
+        proxy-check-max-retries: ${{ inputs.proxy-check-max-retries }}
+
+    - name: Setup Cleanup Hook
+      if: always()
+      uses: ramSeraph/oci-simple-proxy-action/stop/stop_js@v0.0.1
+      with:
+        oci-compartment-name: ${{ inputs.oci-compartment-name }}
+        oci-name-suffix: ${{ steps.start-proxy.outputs.name_suffix }} 
+
+
