@@ -1,0 +1,43 @@
+name: 'OCI-Stop-Simple-Proxy'
+description: 'Stop Running the simple-proxy instance on Oracle Cloud Infrastructure'
+author: 'RamSeraph'
+
+inputs:
+  max-duration-secs:
+    description: 'how long before an instance is eligible for cleanup'
+    required: true
+  oci-compartment-name:
+    description: 'Name of the OCI compartment'
+    required: true
+
+runs:
+  using: "composite"
+  steps: 
+    - name: Install the latest version of uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+        cache-dependency-glob: ""
+
+    - name: Setup OCI Config
+      shell: bash
+      run: |
+        mkdir -p .oci
+        echo "$OCI_CLI_KEY_CONTENT" | base64 --decode > .oci/key.pem
+        echo """[DEFAULT]
+        user=$OCI_CLI_USER
+        fingerprint=$OCI_CLI_FINGERPRINT
+        tenancy=$OCI_CLI_TENANCY
+        region=$OCI_CLI_REGION
+        key_file=$(pwd)/.oci/key.pem
+        """ > .oci/config
+
+
+    - name: Stop
+      shell: bash
+      run: |
+        uv run --with oci ${GITHUB_ACTION_PATH}/stop_all.py \
+            --config-file=$(pwd)/.oci/config \
+            --max-duration-secs=${{ inputs.max-duration-secs }} \
+            --compartment-name="${{ inputs.oci-compartment-name }}"
+
