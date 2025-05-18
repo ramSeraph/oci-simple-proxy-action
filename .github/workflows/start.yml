@@ -1,0 +1,38 @@
+name: Start Proxy
+on: 
+  workflow_dispatch:
+
+jobs:
+  Main-Job:
+    env:
+      OCI_CLI_USER: ${{ secrets.OCI_CLI_USER }}
+      OCI_CLI_TENANCY: ${{ secrets.OCI_CLI_TENANCY }}
+      OCI_CLI_REGION: ${{ secrets.OCI_CLI_REGION }}
+      OCI_CLI_FINGERPRINT: ${{ secrets.OCI_CLI_FINGERPRINT }}
+      OCI_CLI_KEY_CONTENT: ${{ secrets.OCI_CLI_KEY_CONTENT }}
+      OCI_SSH_KEY_CONTENT: ${{ secrets.OCI_SSH_KEY_CONTENT }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.1.7
+
+      - name: install nc
+        run: |
+          sudo apt-get update && sudo apt-get install -y netcat
+
+      - name: Bring up the proxy
+        id: setup-proxy
+        uses: ./start
+        with:
+          oci-compartment-name: ${{ secrets.OCI_COMPARTMENT_NAME }}
+          oci-availability-domain: 'wGsJ:AP-MUMBAI-1-AD-1'
+          oci-shape: 'VM.Standard.A1.Flex'
+          oci-shape-ocpus: 1
+          oci-shape-memory: 1
+          simpleproxy-basicauth: '${{ secrets.PROXY_AUTH }}'
+          simpleproxy-port: 8080
+
+      - name: use proxy
+        run: |
+          proxy_url="http://${{ secrets.PROXY_AUTH }}@${{ steps.setup-proxy.outputs.ip_address }}:8080"
+          echo "curl --proxy $proxy_url https://www.google.com"
+          curl --proxy $proxy_url https://www.google.com

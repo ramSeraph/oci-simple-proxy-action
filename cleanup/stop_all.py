@@ -278,6 +278,7 @@ def main():
                                                 args.compartment_name)
 
     suffix_list = get_suffix_list(compute_client, compartment_id, int(args.max_duration_secs))
+    print(f'{suffix_list=}')
     for suffix in suffix_list:
         try:
             instance = get_instance_by_name(compute_client, compartment_id, f'proxy-{suffix}')
